@@ -251,6 +251,70 @@ This is the trajectory: what costs $25/hr on cloud GPUs today will run on a desk
 
 ---
 
+## Speed Experiments (and what's next)
+
+We tested three techniques to push past the current 30 tok/s ceiling. Here's what we found — and what someone with more RAM could unlock.
+
+### What we tested on 16 GB
+
+| Experiment | Result | Why |
+|---|---|---|
+| **Speculative decoding** (9B drafts, 35B verifies) | **GPU OOM** — both models need 15.9 GB, only 12.7 GB available | Needs 48 GB+ |
+| **Multi-Token Prediction** (Qwen3.5 MTP) | No improvement (16.5 → 16.2 tok/s) | Homebrew llama.cpp doesn't compile MTP for Qwen3.5. Needs vLLM/SGLang |
+| **SSD paging optimization** (mmap vs no-mmap) | ~3% improvement (28.6 → 29.4 tok/s) | macOS mmap already handles SSD prefetching well |
+| **Thread tuning** (2/4/6/8 threads) | Diminishing returns past 4 threads | GPU-bound, not CPU-bound |
+
+### What 48 GB+ unlocks
+
+These techniques are **proven to work** but need more RAM than 16 GB:
+
+**1. Speculative Decoding (est. 2-3x speedup)**
+
+Use the 9B model as a fast "draft" model, the 35B verifies in batches. Needs both models in GPU memory simultaneously (~16 GB).
+
+```bash
+# Requires 48 GB+ Mac
+llama-server \
+    --model ~/models/Qwen3.5-35B-A3B-UD-IQ2_M.gguf \
+    --model-draft ~/models/Qwen3.5-9B-Q4_K_M.gguf \
+    --port 8000 --host 127.0.0.1 \
+    --flash-attn on --ctx-size 8192 \
+    --n-gpu-layers 99 -t 4 \
+    --draft-max 8 --draft-min 2
+```
+
+Expected: **60-90 tok/s** with 35B-class intelligence.
+
+**2. Multi-Token Prediction (est. 1.5-2x speedup)**
+
+Qwen3.5 was trained with MTP — it can predict 2-4 tokens per forward pass. Needs vLLM or SGLang instead of llama.cpp:
+
+```bash
+# Using vLLM (any GPU with enough VRAM)
+vllm serve Qwen/Qwen3.5-35B-A3B --port 8000 \
+    --speculative-config '{"method":"qwen3_next_mtp","num_speculative_tokens":3}'
+```
+
+Expected: **45-60 tok/s** on the same hardware.
+
+**3. Expert Prefetching (the real "LLM in a Flash")**
+
+Predict which MoE experts the next token will need and prefetch them from SSD while the GPU processes the current token. This completely hides SSD latency. Not yet implemented in any open-source framework — but the Apple paper describes the algorithm.
+
+Expected: Paged inference matching in-RAM speed (~57 tok/s on the 35B).
+
+### How to contribute
+
+If you have a Mac with 48 GB+ RAM, you can test speculative decoding today:
+
+1. Download both models (9B + 35B)
+2. Run the speculative decoding command above
+3. Report your tok/s vs baseline in an issue
+
+If you have experience with vLLM on Apple Silicon, MTP support would be a major contribution.
+
+---
+
 ## Benchmarks
 
 212 math problems verified with SymPy (Qwen3.5-9B):
