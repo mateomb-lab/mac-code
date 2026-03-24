@@ -2,7 +2,7 @@
 
 **Claude Code, but it runs on your Mac for free.**
 
-No cloud. No API keys. No monthly bill. A 35-billion parameter AI agent running on a $600 Mac mini.
+No cloud. No API keys. No monthly bill. Two local AI models that auto-switch based on what you need.
 
 ---
 
@@ -12,9 +12,24 @@ Every AI coding agent today — Claude Code, Cursor, Copilot — sends your code
 
 The answer is yes. And the reason is Apple Silicon.
 
+## Two models, one agent
+
+mac code runs two models and **automatically switches between them** based on your query:
+
+| Model | When it's used | Speed | Context | Why |
+|---|---|---|---|---|
+| **Qwen3.5-9B** (Q4_K_M, 5.3 GB) | Web search, tools, file ops, agent tasks | 30 tok/s | **32K** | Reliable tool calling at 5.1 bits/weight |
+| **Qwen3.5-35B-A3B** (IQ2_M, 10.6 GB) | Reasoning, math, knowledge, fast answers | 57 tok/s | 8K | Smarter model, MoE architecture |
+
+The agent detects your intent:
+- *"When do the Lakers play?"* → routes to **9B** (needs web search)
+- *"Explain quantum computing"* → routes to **35B** (pure reasoning, faster)
+
+The model swap takes ~20 seconds. You can also switch manually with `/model 9b` or `/model 35b`.
+
 ## What makes this different
 
-**The model doesn't fit in RAM.** That's the whole point.
+**The 35B model doesn't fit in RAM.** That's the whole point.
 
 Qwen3.5-35B-A3B is a 10.6 GB model. A Mac mini M4 has 16 GB of RAM. After macOS takes its share, there's not enough room. The overflow pages from the SSD.
 
@@ -30,26 +45,9 @@ On any other hardware, this kills performance. We tested it:
 
 **Apple Silicon is 18.6x faster than NVIDIA when the model doesn't fit in memory.**
 
-Why? Because of **unified memory**. On a Mac, the CPU, GPU, and SSD all share the same memory address space. When macOS pages model weights from the SSD, the Metal GPU can still process them directly — no copy to a separate GPU memory, no CPU bottleneck. The data flows SSD → unified memory → GPU at 3-5 GB/s.
-
-On NVIDIA, paging forces the data through the CPU first, then across the PCIe bus to the GPU. The CPU becomes the bottleneck and the $10,000 GPU sits idle.
+Why? **Unified memory.** On a Mac, the CPU, GPU, and SSD share the same memory address space. When macOS pages model weights from the SSD, the Metal GPU still processes them directly — no PCIe bottleneck. On NVIDIA, paging forces data through the CPU first and the GPU sits idle.
 
 **This is Apple's "LLM in a Flash" thesis running in practice on a $600 computer.**
-
-## Why MoE is the key
-
-The model is **Qwen3.5-35B-A3B** — a Mixture-of-Experts architecture:
-- 35 billion total parameters
-- 256 experts
-- Only **8 experts (3B parameters) activate per token**
-
-This means at any moment, 90% of the model is "cold." Cold experts sit on the SSD. Hot experts stay cached in RAM. The GPU only needs the active 3B to generate each token, so the SSD paging overhead is minimal.
-
-Dense models can't do this. A 35B dense model would need every parameter for every token. MoE + Apple Silicon SSD paging is the combination that makes local AI practical on consumer hardware.
-
-## The result
-
-A fully autonomous AI agent with web search, file operations, code execution, and 19 slash commands — running at **30 tokens per second** on a Mac mini that costs $599 once and $4/month in electricity.
 
 ---
 
@@ -63,20 +61,33 @@ A fully autonomous AI agent with web search, file operations, code execution, an
 ### One-command setup
 
 ```bash
-git clone https://github.com/walter-grace/pico-mini.git
-cd pico-mini
+git clone https://github.com/walter-grace/mac-code.git
+cd mac-code
 chmod +x setup.sh && ./setup.sh
 ```
 
 ### Or step by step
 
-**1 — Install llama.cpp and download the model**
+**1 — Install dependencies**
 
 ```bash
-brew install llama.cpp
+brew install llama.cpp go
 pip3 install huggingface-hub rich --break-system-packages
+```
 
+**2 — Download both models**
+
+```bash
 mkdir -p ~/models
+
+# 9B model (recommended — tools + agent work reliably)
+python3 -c "
+from huggingface_hub import hf_hub_download
+hf_hub_download('unsloth/Qwen3.5-9B-GGUF',
+    'Qwen3.5-9B-Q4_K_M.gguf', local_dir='$HOME/models/')
+"
+
+# 35B MoE model (optional — faster reasoning, SSD flash-paging)
 python3 -c "
 from huggingface_hub import hf_hub_download
 hf_hub_download('unsloth/Qwen3.5-35B-A3B-GGUF',
@@ -84,28 +95,12 @@ hf_hub_download('unsloth/Qwen3.5-35B-A3B-GGUF',
 "
 ```
 
-> 10.6 GB download. Takes 5-15 minutes.
-
-**2 — Start the inference server**
-
-```bash
-llama-server \
-    --model ~/models/Qwen3.5-35B-A3B-UD-IQ2_M.gguf \
-    --port 8000 --host 127.0.0.1 \
-    --flash-attn on --ctx-size 8192 \
-    --n-gpu-layers 99 --reasoning off -np 1 -t 4
-```
-
-> Wait for "server is listening". ~20 seconds.
-
-**3 — Build the agent backend**
+**3 — Build PicoClaw (agent framework)**
 
 ```bash
 git clone https://github.com/sipeed/picoclaw.git
 cd picoclaw && make deps && make build && cd ..
 ```
-
-> Needs Go 1.25+. Install with `brew install go` if needed.
 
 **4 — Configure**
 
@@ -114,13 +109,21 @@ mkdir -p ~/.picoclaw/workspace
 cp config.example.json ~/.picoclaw/config.json
 ```
 
-**5 — Run**
+**5 — Start the server and run**
 
 ```bash
+# Start with the 9B model (recommended)
+llama-server \
+    --model ~/models/Qwen3.5-9B-Q4_K_M.gguf \
+    --port 8000 --host 127.0.0.1 \
+    --flash-attn on --ctx-size 32768 \
+    --n-gpu-layers 99 --reasoning off -t 4
+
+# In another terminal
 python3 agent.py
 ```
 
-That's it. You have a local AI coding agent on your Mac.
+The agent will auto-swap to the 35B model when it detects a reasoning-only question (if the 35B model is downloaded).
 
 ---
 
@@ -130,137 +133,119 @@ That's it. You have a local AI coding agent on your Mac.
   🍎 mac code
   claude code, but it runs on your Mac for free
 
-  model  Qwen3.5-35B-A3B  MoE 34.7B · 3B active · IQ2_M
+  model  Qwen3.5-9B  8.95B dense · Q4_K_M · 32K ctx
   tools  search · fetch · exec · files
   cost   $0.00/hr  Apple M4 Metal · localhost:8000
 
-  ──────────────────────────────────────────────────
+  type / to see all commands
 
-  agent > search the web for the latest Qwen 3.5 news
+  auto 9b > when do the lakers play next?
 
-  ⠹ searching the web  8s
-    llm_request model=qwen3.5-35b-a3b
-    tool_call web_search "Qwen 3.5 latest news"
+  ⠹ searching  8s
+    tool_call web_search "Lakers next game"
     tool_result received
 
-  thinking → searching the web → thinking → finishing up
+  The Lakers play tonight at 7 PM ET against the Detroit Pistons.
 
-  Alibaba released Qwen3.5, a new series of AI models with
-  advanced agentic capabilities...
+  29.7 tok/s  ·  42 tokens  ·  1.4s
 
-  29.7 tok/s  ·  142 tokens  ·  4.8s
+  auto 9b > explain how backpropagation works
+
+  routing to 35B (faster reasoning)...
+  ⠹ swapping to 35B  18s
+  Switched to Qwen3.5-35B-A3B (8K ctx)
+
+  Backpropagation is the fundamental algorithm for training
+  neural networks...
+
+  57.1 tok/s  ·  200 tokens  ·  3.5s
 ```
 
 ## Commands
 
+Type `/` to see all 20 commands:
+
 | Command | Action |
 |---|---|
-| `/agent` | Agent mode — web search, file ops, shell exec (default) |
-| `/raw` | Raw mode — direct streaming to LLM, no tools |
-| `/tools` | List available tools |
-| `/stats` | Session statistics |
+| `/agent` | Agent mode — tools + web search (default) |
+| `/raw` | Raw mode — direct streaming, no tools |
+| `/model 9b` | Switch to 9B (32K ctx, tool calling) |
+| `/model 35b` | Switch to 35B MoE (8K ctx, faster) |
+| `/auto` | Toggle smart auto-routing between models |
+| `/btw <q>` | Side question without adding to conversation |
+| `/search <q>` | Quick web search |
+| `/bench` | Speed benchmark |
+| `/loop 5m <p>` | Run prompt on recurring interval |
+| `/stop` | Stop a running loop |
+| `/branch` | Save conversation checkpoint |
+| `/restore` | Restore to checkpoint |
+| `/add-dir <path>` | Set working directory |
+| `/save <file>` | Export conversation to JSON |
 | `/clear` | Reset conversation |
+| `/stats` | Session statistics |
+| `/tools` | List available tools |
 | `/system <msg>` | Set system prompt |
+| `/compact` | Toggle markdown rendering |
+| `/cost` | Show cost savings vs cloud |
 | `/quit` | Exit |
 
 ## Tools
 
-All local. No API keys.
+All local. No API keys needed.
 
-| Tool | What it does |
+| Tool | Source |
 |---|---|
-| `web_search` | DuckDuckGo search |
+| `web_search` | DuckDuckGo |
 | `web_fetch` | Read any URL |
-| `exec` | Run shell commands |
-| `read_file` | Read local files |
+| `exec` | Shell commands |
+| `read_file` | Local files |
 | `write_file` | Create files |
-| `edit_file` | Modify files |
-| `list_dir` | Browse directories |
-| `subagent` | Spawn sub-tasks |
 
 ---
 
-## Files
-
-| File | What |
-|---|---|
-| `agent.py` | The main agent — animated loading, live logs, markdown, tools |
-| `chat.py` | Lightweight streaming chat (no tools) |
-| `dashboard.py` | Real-time server monitor with tok/s sparklines |
-| `config.example.json` | Agent config with DuckDuckGo + fetch MCP servers |
-| `setup.sh` | One-command install |
-
----
-
-## How it works
-
-### "LLM in a Flash" on Apple Silicon
-
-The model is 10.6 GB. Your Mac has 16 GB RAM. After the OS takes ~4 GB, there's not enough room. macOS pages the overflow from the SSD.
-
-On NVIDIA, this kills performance (1.6 tok/s) because paging forces computation onto the CPU. On Apple Silicon, the GPU processes all layers via **unified memory** regardless of whether data is in RAM or paging from SSD. Result: **29.8 tok/s while paging 5.4 GB from SSD**.
-
-### Why MoE matters
-
-Qwen3.5-35B-A3B has 256 experts but only activates 8 per token (3B of 35B parameters). This means:
-- Only a small fraction of the model is "hot" at any time
-- Hot experts stay cached in RAM
-- Cold experts page from SSD on demand
-- Effective compute is 3B per token, but you get 35B-class intelligence
-
-### Architecture
+## Architecture
 
 ```
-┌──────────────────────────────────────────────┐
-│  mac code TUI           Python + Rich        │
-├──────────────────────────────────────────────┤
-│  PicoClaw               Go agent framework   │
-│  github.com/sipeed/picoclaw                  │
-├──────────────────────────────────────────────┤
-│  llama.cpp              C++ + Metal GPU      │
-│  github.com/ggergov/llama.cpp                │
-├──────────────────────────────────────────────┤
-│  Qwen3.5-35B-A3B        MoE model           │
-│  34.7B params, 3B active, IQ2_M quant       │
-├──────────────────────────────────────────────┤
-│  Apple Silicon           Unified Memory      │
-│  Metal GPU + SSD flash paging                │
-└──────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  mac code TUI              Python + Rich             │
+│  Smart routing: tools → 9B, reasoning → 35B          │
+├──────────────────────────────────────────────────────┤
+│  PicoClaw                  Go agent framework        │
+│  github.com/sipeed/picoclaw                          │
+├──────────────────────────────────────────────────────┤
+│  llama.cpp                 C++ + Metal GPU           │
+│  OpenAI-compatible API @ localhost:8000              │
+├──────────────────────────────────────────────────────┤
+│  Qwen3.5-9B (Q4_K_M)      Qwen3.5-35B-A3B (IQ2_M)  │
+│  32K ctx, tools            8K ctx, fast reasoning    │
+├──────────────────────────────────────────────────────┤
+│  Apple Silicon             Unified Memory + SSD      │
+│  Metal GPU + flash paging                            │
+└──────────────────────────────────────────────────────┘
 ```
+
+### Why two models?
+
+The 35B MoE model is smarter and faster (57 tok/s) but its aggressive 2.6-bit quantization breaks tool-calling — the model loops on tool calls without answering. The 9B model at 5.1 bits/weight follows instructions reliably and has 32K context for multi-step agent tasks.
+
+Auto-routing gives you the best of both: tool reliability from the 9B, and raw intelligence from the 35B.
 
 ---
 
 ## Scaling
 
-| Mac | RAM | Model | Speed |
-|---|---|---|---|
-| Mac mini M4 | 16 GB | 35B-A3B IQ2_M (this project) | ~30 tok/s |
-| Mac mini M4 Pro | 48 GB | 35B-A3B Q4_K_M | ~40+ tok/s |
-| Mac Studio M4 Ultra | 192 GB | 397B-A17B (frontier) | ~15-30 tok/s |
-
-### Smaller hardware (8GB)
-
-```bash
-python3 -c "
-from huggingface_hub import hf_hub_download
-hf_hub_download('unsloth/Qwen3.5-9B-GGUF',
-    'Qwen3.5-9B-Q4_K_M.gguf', local_dir='$HOME/models/')
-"
-
-llama-server \
-    --model ~/models/Qwen3.5-9B-Q4_K_M.gguf \
-    --port 8000 --host 127.0.0.1 \
-    --flash-attn on --ctx-size 4096 \
-    --n-gpu-layers 99 --reasoning off -t 4
-```
-
-mac code auto-detects whichever model is running.
+| Mac | RAM | What you can run |
+|---|---|---|
+| Any Mac (8GB) | 8 GB | 9B only, 4K context |
+| **Mac mini M4** | **16 GB** | **9B (32K ctx) + 35B MoE (8K ctx, SSD paging)** |
+| Mac mini M4 Pro | 48 GB | 35B at Q4_K_M with 32K context |
+| Mac Studio M4 Ultra | 192 GB | 397B-A17B frontier model |
 
 ---
 
 ## Benchmarks
 
-212 math problems verified with SymPy:
+212 math problems verified with SymPy (Qwen3.5-9B):
 
 | Category | Score |
 |---|---|
@@ -274,13 +259,22 @@ mac code auto-detects whichever model is running.
 
 ---
 
+## Common Issues
+
+- **GPU OOM after long sessions**: Reboot your Mac to clear Metal GPU memory, then restart the server
+- **Context overflow**: Clear sessions with `rm -rf ~/.picoclaw/workspace/sessions/`
+- **Model swap hangs**: The server needs ~20s to load a new model — be patient
+- **35B tool calling fails**: Expected — the IQ2_M quantization degrades instruction following. Auto-routing handles this by sending tool queries to the 9B
+
+---
+
 ## License
 
 MIT
 
 ## Credits
 
-- **[Qwen3.5](https://huggingface.co/Qwen)** — the model (Alibaba)
+- **[Qwen3.5](https://huggingface.co/Qwen)** — the models (Alibaba)
 - **[llama.cpp](https://github.com/ggergov/llama.cpp)** — inference engine (Georgi Gerganov)
 - **[PicoClaw](https://github.com/sipeed/picoclaw)** — agent framework (Sipeed)
 - **[Unsloth](https://huggingface.co/unsloth)** — GGUF quantizations
