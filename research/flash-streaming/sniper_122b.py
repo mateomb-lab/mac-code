@@ -71,7 +71,7 @@ def dequantize_4bit(weight, scales, biases, group_size=64):
     scales_exp = scales.unsqueeze(-1)   # [out, num_groups, 1]
     biases_exp = biases.unsqueeze(-1)   # [out, num_groups, 1]
     dequantized = unpacked * scales_exp + biases_exp
-    return dequantized.reshape(out_features, in_features)
+    return dequantized.reshape(out_features, in_features).to(torch.float16)
 
 
 class ExpertCache:
