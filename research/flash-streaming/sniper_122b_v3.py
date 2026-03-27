@@ -364,6 +364,12 @@ def main():
         else:
             print(f"    CHECK {check_name}: NOT FOUND")
 
+    # Direct gate weight check
+    gate0 = model.model.layers[0].mlp.gate
+    print(f"    GATE0 weight: mean={gate0.weight.float().mean():.6f} std={gate0.weight.float().std():.6f}")
+    gate3 = model.model.layers[3].mlp.gate
+    print(f"    GATE3 weight: mean={gate3.weight.float().mean():.6f} std={gate3.weight.float().std():.6f}")
+
     # ── 5. Expert sniper + MoE patching ──
     print("\n[4/5] Setting up Expert Sniper + patching MoE...")
     sniper = ExpertSniper(model_dir / "experts", num_layers, device=device, cache_layers=args.cache_layers)
