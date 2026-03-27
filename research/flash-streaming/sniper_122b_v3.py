@@ -336,10 +336,16 @@ def main():
                 w = f.get_tensor(parts["weight"])
                 target = remap_key(base) + ".weight"
                 if target in model_param_names:
+                    model_shape = dict(model.named_parameters())[target].shape
+                    val = w.to(torch.bfloat16)
+                    # Handle shape mismatches (e.g., conv1d [12288,4,1] vs [12288,1,4])
+                    if val.shape != model_shape and val.numel() == model_shape.numel():
+                        val = val.reshape(model_shape)
                     try:
-                        set_module_tensor_to_device(model, target, device=device, value=w.to(torch.bfloat16))
+                        set_module_tensor_to_device(model, target, device=device, value=val)
                         loaded += 1
-                    except Exception:
+                    except Exception as e:
+                        print(f"    FAIL non-quant {target}: {e}")
                         skipped += 1
                 else:
                     skipped += 1
