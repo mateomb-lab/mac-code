@@ -108,7 +108,8 @@ python3 sniper-router/router.py --server http://gpu-server:8201
 |----------|-------|-------|-------|
 | RTX 3090 (24 GB) | Q4_K_M (21 GB), ngl 35 | **44.7 tok/s** | Reproduced from scratch on RunPod |
 | RTX 3090 (cold) | Q4_K_M (21 GB), ngl 35 | **26.0 tok/s** | First request, cold OS page cache |
-| M2 MacBook Air (8 GB) | IQ2_M (10.6 GB), CPU | **0.24 tok/s** | Model on USB flash drive |
+| M2 MacBook Air (8 GB) | IQ2_M (10.6 GB), CPU + madvise | **0.57 tok/s** | Model on USB flash drive, 1 MB overhead |
+| M2 MacBook Air (8 GB) | IQ2_M (10.6 GB), CPU + LRU cache | 0.24 tok/s | 5 GB cache overhead (madvise is better) |
 | M2 MacBook Air (8 GB) | Q4_K_M (21 GB), CPU | Generates | Model is 2.6x larger than RAM |
 
 ## Docker (GPU — no build needed)

@@ -120,16 +120,29 @@ The system exploits a fundamental property of Mixture-of-Experts models: **spars
 1. **Pinned weights (1.4 GB)** — attention, router, shared experts, embeddings. These are always needed and live permanently in RAM.
 2. **Expert weights (20.6 GB)** — 10,240 expert blocks stored on SSD/USB. Only the 8 active experts per layer are loaded on demand.
 
-### The llama.cpp Expert-Aware LRU Cache
+### The llama.cpp Expert-Aware Prefetching (madvise)
 
-Standard llama.cpp uses `mmap` to access model weights. When the model exceeds RAM, macOS pages expert weights in and out randomly, causing catastrophic thrashing — 15+ minutes with zero output.
+Standard llama.cpp uses `mmap` to access model weights. When the model exceeds RAM, the OS pages expert weights in and out with no knowledge of MoE routing patterns, causing catastrophic thrashing — zero output on 8 GB hardware.
 
-Our custom llama.cpp build adds an **expert-aware LRU cache** (`--expert-cache-size`):
-- An eval callback intercepts every `ggml_mul_mat_id` operation (the expert computation)
-- Before each expert multiply, it copies the active expert slices into a user-space LRU cache
-- Hot experts stay pinned in our cache; cold experts get evicted
-- The OS can reclaim mmap pages for cold experts without affecting performance
-- Result: the 21 GB Q4_K_M model generates output on 8 GB RAM instead of thrashing
+We explored two approaches to fix this:
+
+**Approach 1 (LRU cache — failed):** An eval callback copies active expert slices into a user-space LRU cache. This works on 8 GB (0.24 tok/s) but doubles every memory read via memcpy, is 62% slower than stock on abundant RAM, and wastes 5 GB of memory. The cache fights the OS page cache instead of working with it.
+
+**Approach 2 (madvise prefetch — works):** The same eval callback issues `madvise(MADV_WILLNEED)` on the active expert pages instead of copying them. This tells the OS kernel which pages will be accessed next, with zero allocation, zero memcpy, and zero mutex overhead.
+
+Results on 8 GB M2 MacBook Air:
+
+| Config | Generate | Memory Overhead |
+|--------|----------|----------------|
+| Stock llama.cpp | 0 tok/s (thrash) | 0 |
+| LRU cache (5 GB) | 0.24 tok/s | 5,000 MB |
+| **madvise prefetch** | **0.57 tok/s** | **1 MB** |
+
+madvise is 2.4x faster than the cache and uses 5,000x less memory. On abundant RAM (251 GB A100), both approaches are slower than stock (the OS page cache is sufficient), but madvise has near-zero overhead.
+
+The implementation is ~15 lines in the eval callback. The 430-line LRU cache was the experiment that proved expert-aware memory management works; madvise is the mechanism that does it correctly.
+
+**Note:** This applies to llama.cpp's mmap-based model loading. The MLX expert sniper (below) uses a different strategy — direct I/O with `F_NOCACHE` + `pread`, bypassing the OS page cache entirely. madvise is irrelevant to that code path.
 
 ### Vision (Multimodal)
 
@@ -139,7 +152,7 @@ This means a single model handles **text + images + web search** on 8 GB hardwar
 
 ### USB Drive as Model Storage
 
-All model files (GGUF weights, mmproj vision projector) can live on a **USB flash drive or external SSD**. The expert cache compensates for slower USB read speeds by keeping hot experts in RAM. This enables fully portable AI — plug in a USB drive and run a 35B multimodal model on any Mac.
+All model files (GGUF weights, mmproj vision projector) can live on a **USB flash drive or external SSD**. The madvise prefetch hints help the OS prioritize the right expert pages under memory pressure. This enables fully portable AI — plug in a USB drive and run a 35B multimodal model on any Mac.
 
 ## Measured Results
 
