@@ -30,11 +30,11 @@ mlx-sniper profile ~/models/qwen3-30b --tokens 100
 |--------|-------|
 | Model | Qwen3-30B-A3B (17.2 GB, 4-bit) |
 | Standard mlx_lm | OOM |
-| **Sniper speed (varied prompts)** | **3.3 tok/s** |
-| **Sniper speed (cold start)** | **2.9 tok/s** |
-| Cache hit rate | 86% (right-sized LRU + co-activation prefetch) |
-| RAM used | 0.87 GB pinned + ~8 GB expert cache |
-| TTFT | 6–7s (stable across prompts) |
+| **Qwen3-30B-A3B (17.2 GB)** | **3.34 tok/s** (128 experts, cache=3000) |
+| **Qwen3.5-35B-A3B (19.5 GB)** | **2.42 tok/s** (256 experts, cache=4000) |
+| Cache hit rate | 64–86% (right-sized LRU + co-activation prefetch) |
+| RAM used | 0.87–1.5 GB pinned + 8–10 GB expert cache |
+| TTFT | 6s (stable across prompts) |
 
 ## Full Package
 
