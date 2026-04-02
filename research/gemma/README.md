@@ -93,11 +93,30 @@ Gemma 4 activates only 4B of 26B parameters per token (15.4% activation ratio). 
 
 This contrasts with Qwen 35B where stock llama.cpp thrashes at 10.6 GB on 8 GB — Qwen's shared experts increase the effective working set.
 
-## MLX Expert Sniper (coming soon)
+## MLX Expert Sniper — Q8 on 16 GB (WORKING)
 
-We have a custom Gemma 4 MLX model class (551 lines) and a Q8→streaming split script. The MLX path streams Q8 experts from SSD with no CPU_REPACK overhead, enabling Q8 quality on 16 GB Macs.
+**26.9 GB model generating on 16 GB Mac where llama.cpp produces 0 tok/s.**
 
-Status: architecture implemented, testing in progress.
+| Metric | Value |
+|--------|-------|
+| Model | Gemma 4-26B-A4B Q8_0 (26.9 GB) |
+| RAM | 16 GB (M4 Mac Mini) |
+| Pinned in RAM | 2.73 GB |
+| Expert cache hit rate | 93.8% |
+| Speed | 0.27 tok/s (unoptimized) |
+| Output quality | Paris ✓, Canberra ✓, Python ✓ |
+
+The sniper streams Q8 experts from SSD via F_NOCACHE + pread while keeping
+only 2.73 GB of attention weights in RAM. Stock llama.cpp can't even load
+this model (CPU_REPACK requires 51 GB).
+
+```bash
+# Setup (from mac-code repo)
+cd research/expert-sniper/cli-agent
+pip install .
+mlx-sniper download gemma4-26b  # experimental
+mlx-sniper run ~/models/gemma4-26b-stream -p "What is the capital of France?" -v
+```
 
 ## Model source
 
