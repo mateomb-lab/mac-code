@@ -45,6 +45,13 @@ MODEL_REGISTRY = {
         "default_dir": "qwen3-235b-stream",
         "description": "Qwen3-235B-A22B 4-bit (~130 GB, 128 experts, needs 64+ GB RAM)",
     },
+    # Gemma 4 (Google) — NEW ARCHITECTURE
+    "gemma4-26b": {
+        "repo": "google/gemma-4-26B-A4B-it",
+        "default_dir": "gemma4-26b-stream",
+        "description": "Gemma 4-26B-A4B bf16 (~50 GB, 128 experts, Google MoE — EXPERIMENTAL)",
+        "preprocess": "gemma4",
+    },
 }
 
 TENSOR_ORDER = [
@@ -68,6 +75,10 @@ def list_models():
     print("\n  64 GB+ Macs:")
     for name, info in MODEL_REGISTRY.items():
         if "64+" in info["description"]:
+            print(f"    {name:<22} {info['description']}")
+    print("\n  Experimental (new architectures):")
+    for name, info in MODEL_REGISTRY.items():
+        if "EXPERIMENTAL" in info["description"]:
             print(f"    {name:<22} {info['description']}")
     print(f"\nUsage: mlx-sniper download <model-name> [-o output_dir]")
 
@@ -114,7 +125,11 @@ def download_model(model_name, output_dir=None, calibrate_quick=True, keep_downl
     print(f"Step 2/3: Preprocessing into sniper streaming format...")
     print(f"  This takes ~5-20 minutes. Shards are deleted after processing to save disk.\n")
 
-    _preprocess(download_dir, output_dir)
+    if info.get("preprocess") == "gemma4":
+        from .preprocess_gemma4 import preprocess_gemma4
+        preprocess_gemma4(download_dir, output_dir)
+    else:
+        _preprocess(download_dir, output_dir)
 
     # Clean up download dir
     if not keep_download:
