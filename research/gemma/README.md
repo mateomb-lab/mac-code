@@ -24,14 +24,14 @@ Pick the quantization that fits your Mac:
 ```bash
 pip3 install huggingface-hub
 
-# IQ2_M — 9.3 GB (fits in 8 GB RAM, lower quality)
+# IQ2_M — 9.3 GB (fastest on 16 GB, fits in RAM = 36 tok/s)
 python3 -c "
 from huggingface_hub import hf_hub_download
 hf_hub_download('unsloth/gemma-4-26B-A4B-it-GGUF',
     'gemma-4-26B-A4B-it-UD-IQ2_M.gguf', local_dir='$HOME/models/gguf')
 "
 
-# Q4_K_M — 16.9 GB (best quality/speed on 16 GB Macs)
+# Q4_K_M — 16.9 GB (better quality, slower — 5 tok/s on 16 GB)
 python3 -c "
 from huggingface_hub import hf_hub_download
 hf_hub_download('unsloth/gemma-4-26B-A4B-it-GGUF',
@@ -79,7 +79,7 @@ All measurements on Apple Silicon, stock llama.cpp with mmap, no expert cache.
 | Any Mac | 8 GB | IQ2_M (9.3 GB) | ~1.4 tok/s |
 | M1/M2/M3/M4 | 16 GB | Q4_K_M (16.9 GB) | ~5 tok/s |
 | M1/M2/M3/M4 | 16 GB | IQ2_M (9.3 GB) | ~36 tok/s (fits in RAM) |
-| Pro/Max | 32 GB+ | Q8_0 (26.9 GB) | ~15-20 tok/s (estimated) |
+| Pro/Max | 32 GB+ | Q8_0 (26.9 GB) | Not tested (estimated ~15-20 tok/s) |
 
 **IQ2_M on 16 GB** is the speed champion (36.5 tok/s) because it fits entirely in GPU memory. **Q4_K_M** gives better output quality but runs 7x slower because the OS has to page experts in/out.
 
