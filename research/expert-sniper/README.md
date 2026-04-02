@@ -156,6 +156,12 @@ Google's Gemma 4-26B-A4B has 128 experts with top-8 routing (4B active of 26B to
 
 All Gemma 4 results use stock llama.cpp with mmap. Canberra verified on all configurations.
 
+**Model downloads (GGUF):**
+- [unsloth/gemma-4-26B-A4B-it-GGUF](https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF) — IQ2_M (9.3 GB), Q4_K_M (16.9 GB), Q8_0 (26.9 GB)
+- [google/gemma-4-26B-A4B-it](https://huggingface.co/google/gemma-4-26B-A4B-it) — bf16 source model
+
+**MLX model class:** Custom `gemma4.py` (551 lines) in `cli-agent/src/mlx_expert_sniper/models/`. Implements full Gemma 4 architecture including sliding window attention, fused gate_up experts, custom router with per-expert scaling, and logit softcapping. Requires quantized MLX version for sniper streaming (not yet available from mlx-community).
+
 ## Docker (GPU — no build needed)
 
 ```bash
